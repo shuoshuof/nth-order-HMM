@@ -1,13 +1,13 @@
-import math
 import pickle
 import numpy as np
-
+import pandas as pd
 class HMM:
     def __init__(self,dataset_path,model_path=None,n=2):
         self.path= dataset_path
         self.dataset=self.read_dataset()
         self.model=self.load(model_path) if model_path is not None else None
         self.n = n
+        self.metrics =None
     def read_dataset(self):
         with open(self.path,'rb') as f:
             x_train = pickle.load(f)
@@ -21,7 +21,6 @@ class HMM:
         A = np.zeros((4,)*(self.n+1))#状态转移概率矩阵
         B = np.zeros((4, 65536))#发射概率矩阵
         pi = np.zeros(4)
-        #是否需要每个位置一维度呢？
         A_ = np.zeros((4,4))
         for sentence,label_seq in zip(x_train,y_train):
             for idx in range(len(sentence)):
@@ -34,10 +33,6 @@ class HMM:
                 else:
                     indices = tuple([ label_seq[i] for i in range(idx-self.n,idx+1)])
                     A[indices]+=1
-                    # index=0
-                    # for i,label in enumerate(labels):
-                    #     index += label*(4**(self.n-1-i))
-                    # A[index]+=1
                 B[label_seq[idx]][ord(word)]+=1
         A_sum = np.sum(A,axis=-1).reshape((4,)*self.n+(1,))
         A_sum = np.where(A_sum==0,1,A_sum)
@@ -51,15 +46,15 @@ class HMM:
         pi = pi/np.sum(pi)
         pi = np.where(pi == 0, np.full_like(pi, -3.14e+100), np.log(pi))
         self.model = (pi,A,B,A_)
-        self.evaluate('train')
-        self.evaluate('test')
+        train_metrics = self.evaluate('train')
+        test_metrics = self.evaluate('test')
+        self.metrics = np.array(train_metrics+test_metrics)
     def predict(self, sentence):
 
         pi, A, B, A_ = self.model
         T = len(sentence)
         psi = np.zeros([T]+[4]*self.n)
         delta = np.zeros([T]+[4]*self.n)
-
         def loop_fun1(t,n,state_seq:list):
             # t=0时最大概率
             o_i = ord(sentence[0])
@@ -81,18 +76,6 @@ class HMM:
             else:
                 for state in range(4):
                     n_loop(t,n,state_seq+[state],fun)
-
-        # def n_loop(n,state_seq:list):
-        #
-        #     if len(state_seq)==n:
-        #         # t=0时最大概率
-        #         p =pi[state_seq[0]] + B[state_seq[0]][sentence[0]]
-        #         for t in range(1,n):
-        #             p+= A_[state_seq[t-1]][state_seq[t]]+B[state_seq[t]][sentence[t]]
-        #         delta[self.n-1][tuple(state_seq)] = p
-        #     else:
-        #         for state in range(4):
-        #             return n_loop(n,state_seq+[state])
         n_loop(
             t=self.n - 1,
             n=self.n,
@@ -165,10 +148,13 @@ class HMM:
                 sum_base_TP+=base_TP
         P = sum_base_TP/sum_base_B
         R = sum_base_TP/sum_base_A
+        F1 = (2*P*R)/(P+R)
         print(dataset)
         print('正确率',P)
         print('召回率',R)
-        print('F1',(2*P*R)/(P+R))
+        print('F1',F1)
+
+        return [P,R,F1]
 
     def save(self):
         with open('{}_model.pickle'.format(self.n), 'wb') as f:
@@ -181,19 +167,20 @@ class HMM:
 
 
 if __name__ =='__main__':
-    # dataset = HMM_model('./dataset/HMMTrainSet.txt')
-    # model = dataset.train()
-    # sentence = '在这一年中，中国的改革开放和现代化建设继续向前迈进。'
-    # predict(model,sentence)
-    # model = HMM('./dataset/data.pickle')
 
-    model = HMM(dataset_path='./dataset/data.pickle',model_path='./2_model.pickle',n=3)
-    model.train()
-    model.save()
-    sentence = '在这一年中，中国的改革开放和现代化建设继续向前迈进。'
-    model.predict(sentence)
-    # print(list(sentence))
-    # model.predict(sentence)
+    metrics = []
+    for n in range(1,4):
+        model = HMM(dataset_path='./dataset/data.pickle',model_path=None,n=n)
+        model.train()
+        model.save()
+        metrics.append(model.metrics)
+    with open('./metrics.pickle', 'wb') as f:
+        pickle.dump(metrics,f)
+    metrics = pd.DataFrame(metrics,
+                           columns=['训练集正确率', '训练集召回率','训练集F1','验证集正确率', '验证集召回率','验证集F1'],
+                           index=['一阶','二阶','三阶']
+                        )
+    metrics.to_csv('./metrics.csv')
 
 
 

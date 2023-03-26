@@ -44,7 +44,6 @@ class HMM:
         delta = np.zeros((T, 4))
 
         for t, word in enumerate(sentence):
-
             o_i = ord(word)
             for i in range(4):
                 if t == 0:
@@ -56,7 +55,6 @@ class HMM:
                     psi[t][i] = np.argmax(p)
 
         i_star = np.argmax(delta[T - 1])
-
         label_seq = []
         states = ['B', 'M', 'E', 'S']
         last_state = i_star
